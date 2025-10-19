@@ -2,15 +2,15 @@
 
 Alright picture this  
 we got solar panels everywhere maybe even a Tesla chillin in the driveway  
+![solar tesla](img/1.jpg) 
+
 and we’re like “yeah we got this renewable energy thing figured out”  
 until one cloud shows up and the whole system’s like “nah, I’m out”  
 
 That’s why we’re here  
 to stop getting roasted by the weather and start **forecasting that power**  
-no guessing, no vibes, just pure data and caffeine  
 
 
-![solar tesla](1.jpg) 
 ---
 
 ## ⚙️ Project Structure  
