@@ -1,0 +1,35 @@
+[project]
+name = "solarpowerproject"
+version = "0.1.0"
+description = "Solar power forecasting project using ML"
+authors = [
+    {name = "hknl5",email = "hanouf.qh2004@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy (==1.26.4)",
+    "pandas (==2.2.3)",
+    "scikit-learn (==1.5.2)",
+    "matplotlib (==3.9.2)",
+    "seaborn (==0.13.2)",
+    "lightgbm (==4.5.0)",
+    "tensorflow (==2.16.2)",
+    "keras (==3.5.0)",
+    "tqdm (==4.66.5)",
+    "joblib (==1.4.2)",
+    "scipy (==1.13.1)",
+    "notebook (==7.2.2)",
+    "ipykernel (==6.29.5)",
+    "streamlit (>=1.50.0,<2.0.0)",
+    "xgboost (==2.0.3)",
+    "pvlib (>=0.13.1,<0.14.0)",
+    "fastapi (>=0.119.0,<0.120.0)",
+    "uvicorn (>=0.38.0,<0.39.0)",
+    "requests (>=2.32.5,<3.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
