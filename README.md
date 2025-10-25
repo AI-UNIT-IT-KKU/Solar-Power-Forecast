@@ -20,23 +20,25 @@ to stop getting roasted by the weather and start **forecasting that power**
 
 ```
 SolarPowerProject/
-├─ Data/                     (it's empty because why share the data w yall)
-├─ img/                      images and memes for the README
-├─ models/                   trained models and weights
-├─ solar_forecasting/        main ML package
-│  ├─ data_processing.py     data cleaning and interpolation
-│  ├─ feature_selection.py   feature selection and engineering
-│  ├─ modeling.py            XGBoost training script
-│  ├─ lstm_models.py         LSTM training script
-│  ├─ metrics.py             for evaluating 
-│  └─ utils.py               shared helper functions
-├─ solar-forecast-ui/        React frontend app
-├─ api.py                    FastAPI backend for predictions
-├─ streamlitApp.py           lightweight UI alternative
-├─ training.py               unified training script
-├─ SolarNoteBook.ipynb       experimental notebook
-├─ pyproject.toml            Poetry setup
-└─ requirements.txt          pip setup
+├─ Data/                         (it's empty because why share the data w yall)
+├─ img/                          images and memes for the README
+├─ models/                       trained models and weights
+├─ solar_forecasting_package_V2/     
+│  ├─ solar_forecasting/         main ML package
+│  │  ├─ preprocessing.py        data cleaning, outlier detection, time‑based splits, scaling features
+│  │  ├─ feature_selection.py    compute correlation/mutual information to rank features
+│  │  ├─ xgb_model.py            train an XGBoost model with early stopping and hyperparameter tuning
+│  │  ├─ lstm_pytorch.py         define PyTorch LSTM models and handle sliding‑window training
+│  │  ├─ metrics.py              regression metrics like MAE, RMSE, R², MAPE, sMAPE
+│  │  └─ init.py                 marks this directory as a package
+│  └─ usage_example.py           example script demonstrating end‑to‑end workflow
+├─ solar-forecast-ui/            React frontend app
+├─ api.py                        FastAPI backend for predictions
+├─ streamlitApp.py               lightweight UI alternative
+├─ SolarNoteBook.ipynb  V1-V2    experimental notebook
+├─ LSTM_PyTorch.ipynb            experimental notebook
+├─ pyproject.toml                Poetry setup
+└─ requirements.txt              pip setup
 ```
 
 ---
