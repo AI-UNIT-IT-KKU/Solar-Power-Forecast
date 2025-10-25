@@ -15,27 +15,114 @@ from datetime import date, datetime, timedelta
 import requests
 import pandas as pd
 import numpy as np
-import xgboost as xgb
+# The original implementation used XGBoost; this has been replaced
+# with a PyTorch-based CNN/LSTM model.  Torch is an optional
+# dependency and must be installed in the runtime environment.
+import torch
+import torch.nn as nn
 import joblib
 import pvlib
+import os
+
+# -----------------------------------------------------------------------------
+# Model definition: CNN + LSTM regression network
+#
+# The training script saved only the model's ``state_dict`` and metadata.  To
+# reconstruct the model at runtime we need its architecture.  This class
+# implements the architecture used during training.  See the training code for
+# details.
+class CNNLSTMReg(nn.Module):
+    """A convolutional plus LSTM model for time‑series regression.
+
+    Parameters
+    ----------
+    n_features : int
+        Number of input features per time step.
+    conv_channels : int, optional
+        Number of convolutional filters in the Conv1d layers.  Defaults to 64.
+    kernel_size : int, optional
+        Size of the convolutional kernel.  Defaults to 3.
+    pool : int, optional
+        Pooling size for the MaxPool1d layer.  Defaults to 2.
+    lstm_hidden : int, optional
+        Number of hidden units in the LSTM.  Defaults to 64.
+    dropout : float, optional
+        Dropout rate applied before the final linear layer.  Defaults to 0.2.
+    """
+    def __init__(
+        self,
+        n_features: int,
+        conv_channels: int = 64,
+        kernel_size: int = 3,
+        pool: int = 2,
+        lstm_hidden: int = 64,
+        dropout: float = 0.2,
+    ) -> None:
+        super().__init__()
+        # Convolutional layers expect (B, C, L).  We treat the features as
+        # channels and the sequence length as L.  ``pad`` approximates
+        # ``padding='same'`` behaviour.
+        pad = kernel_size // 2
+        self.conv1 = nn.Conv1d(
+            in_channels=n_features,
+            out_channels=conv_channels,
+            kernel_size=kernel_size,
+            padding=pad,
+        )
+        self.relu1 = nn.ReLU()
+        self.pool1 = nn.MaxPool1d(kernel_size=pool)
+        self.conv2 = nn.Conv1d(
+            in_channels=conv_channels,
+            out_channels=conv_channels,
+            kernel_size=kernel_size,
+            padding=pad,
+        )
+        self.relu2 = nn.ReLU()
+        self.lstm = nn.LSTM(
+            input_size=conv_channels,
+            hidden_size=lstm_hidden,
+            num_layers=1,
+            batch_first=True,
+        )
+        self.do = nn.Dropout(dropout)
+        self.fc = nn.Linear(lstm_hidden, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Input x shape: (B, W, F).  Transpose to (B, F, W) for Conv1d.
+        z = x.transpose(1, 2)
+        z = self.relu1(self.conv1(z))
+        z = self.pool1(z)
+        z = self.relu2(self.conv2(z))
+        # Back to (B, W', C) for LSTM
+        z = z.transpose(1, 2)
+        out, _ = self.lstm(z)
+        last = out[:, -1, :]
+        last = self.do(last)
+        return self.fc(last).squeeze(-1)
 
 # -------------------- Configuration --------------------
-MODEL_PATH = "models/xgb_ig_model.json"
-SCALER_PATH = "models/scaler_ig.pkl"
+# Update paths to the CNN‑LSTM model and scalers.  These should point
+# to the files provided in your environment.  Absolute paths are
+# recommended if the working directory is uncertain.
+MODEL_PATH = "models/CNN_LSTM_IG120.pt"
+X_SCALER_PATH = "models/x_scaler.pkl"
+Y_SCALER_PATH = "models/y_scaler.pkl"
 
+# Feature list used during training of the neural network.  The order
+# must match exactly the columns expected by the x‑scaler.  If the
+# scaler exposes feature_names_in_ this list will be overwritten in
+# code below.  See ``features_ig`` provided by the user.
 FEATS = [
-    "Total Solar Irradiance on Horizontal Plane GHI(W/m2)",
-    "Total Solar Irradiance on Inclined Plane POA1(W/m2)",
-    "Total Solar Irradiance on Inclined Plane POA2(W/m2)",
-    "Module Surface Temperature1(degree centigrade)",
-    "Module Surface Temperature2(degree centigrade)",
+    "Total Solar Irradiance on Horizontal Plane GHI(Wh/m2)",
     "Soiling Loss Index Isc(%)",
     "Soiling Loss Index Geff(%)",
-    "Isc Test(Amp)",
-    "Isc Ref(Amp)",
-    "Geff Test(W/M2)",
-    "Geff Reference(W/M2)",
+    "Total Solar Irradiance on Horizontal Plane GHI(W/m2)",
+    "Module Surface Temperature2(degree centigrade)",
+    "Module Surface Temperature1(degree centigrade)",
     "Temperature Reference Cell(Deg C)",
+    "Temperature Test(Deg C)",
+    "Ambient Temp.(degree centigrade)",
+    "Relative Humidity(%)",
 ]
 
 # -------------------- FastAPI App --------------------
@@ -87,17 +174,64 @@ class ForecastResponse(BaseModel):
     daily_data: List[DailyDataPoint]
 
 # -------------------- Load Model --------------------
+# Attempt to load the PyTorch model state and reconstruct the CNN‑LSTM
+# architecture along with associated scalers.  The saved model file is
+# expected to be a checkpoint dictionary with keys ``state_dict``,
+# ``n_features``, ``window``, ``features`` and ``scalers``.  See
+# training script for details.
 try:
-    booster = xgb.Booster()
-    booster.load_model(MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH)
-    feats_fit = list(getattr(scaler, "feature_names_in_", [])) or FEATS
-    print("✅ Model and scaler loaded successfully")
+    # Load the checkpoint (dict) saved during training
+    checkpoint = torch.load(MODEL_PATH, map_location="cpu")
+    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        # Extract metadata
+        n_features_ckpt = checkpoint.get("n_features")
+        window_size_ckpt = checkpoint.get("window", 1)
+        feats_from_ckpt = checkpoint.get("features", FEATS)
+        scalers_info = checkpoint.get("scalers", {})
+        # Instantiate the model with same parameters used in training.
+        model_loaded_inst = CNNLSTMReg(n_features=n_features_ckpt)
+        model_loaded_inst.load_state_dict(checkpoint["state_dict"])
+        model_loaded_inst.eval()
+        booster = model_loaded_inst
+        # Use feature order from checkpoint
+        feats_fit = feats_from_ckpt
+        # Determine scaler paths from checkpoint.  Resolve relative paths
+        # relative to the directory containing the model checkpoint.  If
+        # paths are absolute or missing, fall back to the configured
+        # defaults.
+        base_dir = os.path.dirname(MODEL_PATH)
+        x_scaler_path_ck = scalers_info.get("x_scaler_path")
+        y_scaler_path_ck = scalers_info.get("y_scaler_path")
+        if x_scaler_path_ck:
+            x_scaler_path_full = x_scaler_path_ck if os.path.isabs(x_scaler_path_ck) else os.path.join(base_dir, x_scaler_path_ck)
+        else:
+            x_scaler_path_full = X_SCALER_PATH
+        if y_scaler_path_ck:
+            y_scaler_path_full = y_scaler_path_ck if os.path.isabs(y_scaler_path_ck) else os.path.join(base_dir, y_scaler_path_ck)
+        else:
+            y_scaler_path_full = Y_SCALER_PATH
+        scaler = joblib.load(x_scaler_path_full)
+        y_scaler = joblib.load(y_scaler_path_full)
+        # Store window size for sequence creation in inference
+        seq_window = window_size_ckpt
+        print("✅ CNN‑LSTM model and scalers loaded successfully")
+    else:
+        # Fallback: assume model was saved as a full torch module
+        model_loaded_inst = checkpoint
+        model_loaded_inst.eval()
+        booster = model_loaded_inst
+        scaler = joblib.load(X_SCALER_PATH)
+        y_scaler = joblib.load(Y_SCALER_PATH)
+        feats_fit = list(getattr(scaler, "feature_names_in_", [])) or FEATS
+        seq_window = 1
+        print("✅ Model and scalers loaded successfully (full model)")
 except Exception as e:
-    print(f"❌ Error loading model: {e}")
+    print(f"❌ Error loading model or scalers: {e}")
     booster = None
     scaler = None
+    y_scaler = None
     feats_fit = FEATS
+    seq_window = 1
 
 # -------------------- Helper Functions --------------------
 def fetch_weather_data(lat: float, lon: float, start_date: date, end_date: date, tz: str) -> pd.DataFrame:
@@ -179,29 +313,48 @@ def upsample_to_minute(df_hourly: pd.DataFrame) -> pd.DataFrame:
     return df_hourly.resample("T").interpolate(method="time").bfill().ffill()
 
 def build_feature_matrix(df_min: pd.DataFrame, noct: float, feats: list):
-    """Build feature matrix for prediction"""
+    """Build feature matrix for prediction.
+
+    This function constructs the input features in the order defined by
+    ``feats``.  The new feature set differs from the original XGBoost
+    implementation and is tailored to the CNN‑LSTM model.  It includes
+    an approximation of energy (Wh/m²) per time step, placeholders for
+    soiling indices, direct GHI, module temperatures, reference and test
+    cell temperatures, ambient temperature and relative humidity.
+    """
+    # Ambient air temperature
     t_amb = df_min["temp2m"]
+    # Estimate module temperature based on NOCT and plane-of-array
     t_mod = t_amb + (noct - 20.0) / 800.0 * df_min["poa1"]
-    
-    X = pd.DataFrame({
-        feats[0]: df_min["ghi"].values,
-        feats[1]: df_min["poa1"].values,
-        feats[2]: df_min["poa2"].values,
-        feats[3]: t_mod.values,
-        feats[4]: t_mod.values,
-        feats[5]: np.zeros(len(df_min)),
-        feats[6]: np.zeros(len(df_min)),
-        feats[7]: np.ones(len(df_min)),
-        feats[8]: np.ones(len(df_min)),
-        feats[9]: df_min["poa1"].values,
-        feats[10]: df_min["poa1"].values,
-        feats[11]: df_min["temp2m"].values,
-    }, index=df_min.index)
-    
+    # Approximate energy in Wh/m².  Compute time delta in hours between
+    # consecutive samples; default to 1/60 h for minute data or 1 h for
+    # hourly data.
+    if len(df_min.index) > 1:
+        delta_hours = (df_min.index.to_series().diff().dt.total_seconds() / 3600.0).fillna(0)
+        delta_hours = delta_hours.replace(0, 1.0 / 60.0)
+    else:
+        delta_hours = pd.Series([1.0], index=df_min.index)
+    energy_wh = df_min["ghi"] * delta_hours
+    # Build DataFrame with the correct column order
+    X = pd.DataFrame(
+        {
+            feats[0]: energy_wh.values,
+            feats[1]: np.zeros(len(df_min)),  # Soiling Loss Index Isc (%), placeholder
+            feats[2]: np.zeros(len(df_min)),  # Soiling Loss Index Geff (%), placeholder
+            feats[3]: df_min["ghi"].values,  # Direct GHI (W/m2)
+            feats[4]: t_mod.values,  # Module Surface Temperature2
+            feats[5]: t_mod.values,  # Module Surface Temperature1
+            feats[6]: df_min["temp2m"].values,  # Temperature Reference Cell (approx)
+            feats[7]: df_min["temp2m"].values,  # Temperature Test (approx)
+            feats[8]: df_min["temp2m"].values,  # Ambient Temp.
+            feats[9]: df_min["rh"].values,  # Relative Humidity
+        },
+        index=df_min.index,
+    )
+    # Identify daytime samples; night-time irradiance features are zeroed
     day_mask = df_min["ghi"] > 1.0
-    irrad_cols = [feats[0], feats[1], feats[2], feats[9], feats[10]]
+    irrad_cols = [feats[0], feats[3]]
     X.loc[~day_mask, irrad_cols] = 0.0
-    
     return X, day_mask
 
 # -------------------- API Endpoints --------------------
@@ -232,7 +385,10 @@ async def health_check():
 async def generate_forecast(request: ForecastRequest):
     """Generate solar power forecast"""
     
-    if booster is None or scaler is None:
+    # Ensure the model and scalers are loaded.  All three must be
+    # present: the neural network (booster), the feature scaler and
+    # the target scaler.
+    if booster is None or scaler is None or y_scaler is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
     
     try:
@@ -258,23 +414,38 @@ async def generate_forecast(request: ForecastRequest):
         else:
             df_input = df_hourly.resample("H").mean().ffill().bfill()
         
-        # Build features
+        # Build feature matrix in the order expected by the scaler
         X_future_raw, day_mask = build_feature_matrix(df_input, request.noct, FEATS)
         X_future_raw = X_future_raw.reindex(columns=feats_fit).astype(float)
-        
-        # Scale and predict
-        X_scaled = pd.DataFrame(
-            scaler.transform(X_future_raw),
-            index=X_future_raw.index,
-            columns=feats_fit
-        )
-        
-        dmat = xgb.DMatrix(X_scaled, feature_names=feats_fit)
-        yhat = booster.predict(dmat)
-        
-        # Post-process
-        pred = pd.Series(yhat, index=X_scaled.index, name="forecast")
-        pred[~day_mask] = 0.0
+        # Scale inputs
+        X_scaled_arr = scaler.transform(X_future_raw)
+        # Create sliding windows for sequence input.  The model expects
+        # sequences of length ``seq_window`` and will produce one
+        # prediction per sequence.  Align predictions with the last
+        # timestamp of each window.  If there are fewer samples than
+        # required by the window, no prediction can be made.
+        n_steps = len(X_scaled_arr)
+        if n_steps < seq_window:
+            raise HTTPException(status_code=500, detail=f"Not enough data to build a sequence of length {seq_window}")
+        sequences = []
+        for i in range(n_steps - seq_window + 1):
+            sequences.append(X_scaled_arr[i : i + seq_window])
+        sequences = np.stack(sequences)
+        X_tensor_seq = torch.tensor(sequences, dtype=torch.float32)
+        # Predict with the neural network
+        with torch.no_grad():
+            yhat_seq = booster(X_tensor_seq).cpu().numpy()
+        # Build full-length prediction vector, aligning each prediction
+        # with the end of its window.  Prepend zeros for the initial
+        # seq_window-1 time steps.
+        full_pred_scaled = np.zeros(n_steps)
+        full_pred_scaled[seq_window - 1 :] = yhat_seq
+        # Inverse transform predictions back to watts
+        yhat_inv = y_scaler.inverse_transform(full_pred_scaled.reshape(-1, 1)).ravel()
+        # Construct prediction series
+        pred = pd.Series(yhat_inv, index=X_future_raw.index, name="forecast")
+        # Zero out nighttime values and clip negatives
+        pred.loc[~day_mask] = 0.0
         pred = pred.clip(lower=0)
         
         # Smoothing
