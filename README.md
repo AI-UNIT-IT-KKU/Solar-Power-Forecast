@@ -4,7 +4,7 @@ Alright picture this
 we got solar panels everywhere maybe even on a Tesla chillin in the driveway  
 
 <p >
-  <img src="img/1.jpg" alt="solar tesla" width="400"/>
+  <img src="imgs/1.jpg" alt="solar tesla" width="400"/>
 </p>
 
 and we’re like “yeah we got this renewable energy thing figured out”  
