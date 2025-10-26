@@ -1,7 +1,7 @@
 # Solar Power Forecast  
 
 Alright picture this  
-we got solar panels everywhere maybe even a Tesla chillin in the driveway  
+we got solar panels everywhere maybe even on a Tesla chillin in the driveway  
 
 <p >
   <img src="img/1.jpg" alt="solar tesla" width="400"/>
