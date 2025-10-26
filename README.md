@@ -86,7 +86,7 @@ uvicorn api:app --reload --port 8000
 ### 2. Frontend Setup  
 
 <p align="center">
-  <img src="img/3.png" alt="forecasting site" width="880"/>
+  <img src="imgs/3.png" alt="forecasting site" width="880"/>
 </p>
 
 
