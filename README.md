@@ -26,8 +26,7 @@ This project compares multiple forecasting models for solar power prediction:
 
 ```
 SolarPowerProject/
-├─ Data/                         (it's empty because why share the data w yall)
-├─ img/                          images and memes for the README
+├─ img/                          images for the README
 ├─ models/                       trained models and weights
 ├─ solar_forecasting_package_V2/     
 │  ├─ solar_forecasting/         main ML package
