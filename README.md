@@ -86,6 +86,7 @@ Captures **linear relationships** with target variable
 
 #### 2. Information Gain (Mutual Information)
 Captures **non-linear dependencies**
+
 ---
 
 ## Model Architectures
