@@ -82,37 +82,10 @@ Step 5: Data Split (Chronological)
 Two approaches were tested to compare linear vs non-linear feature importance:
 
 #### 1. Pearson Correlation Coefficient (PCC)
-Captures **linear relationships** with target variable:
-
-```
-Feature                        Correlation
-─────────────────────────────────────────
-Solar Irradiance POA1/2        0.985
-Isc Test/Ref                   0.982
-GHI                            0.950
-Module Surface Temp            0.828
-Temperature Reference Cell     0.819
-Geff Test/Reference            0.837
-Ambient Temperature            0.430
-Wind Speed                     0.389
-Relative Humidity             -0.342
-```
+Captures **linear relationships** with target variable
 
 #### 2. Information Gain (Mutual Information)
-Captures **non-linear dependencies**:
-
-```
-Feature                        MI Score
-─────────────────────────────────────────
-Isc Ref                        1.586
-Isc Test                       1.577
-Geff Reference/Test            1.557
-POA1/POA2                      1.533
-Soiling Loss Indices           1.391
-GHI (Wh/m²)                    1.348
-Module Surface Temp            0.905
-Temperature Ref Cell           0.880
-```
+Captures **non-linear dependencies**
 ---
 
 ## Model Architectures
